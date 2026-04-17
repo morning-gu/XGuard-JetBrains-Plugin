@@ -1,0 +1,12 @@
+.gradle/
+build/
+out/
+.idea/
+*.iml
+local-model/models/
+__pycache__/
+*.pyc
+.env
+.arts/
+.codeartsdoer/
+.intellijPlatform/

@@ -1,0 +1,97 @@
+<idea-plugin>
+    <resource-bundle>messages.XGuardBundle</resource-bundle>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <!-- Application-level services -->
+        <applicationService
+                serviceImplementation="com.xguard.plugin.inference.InferenceManager"/>
+        <applicationService
+                serviceImplementation="com.xguard.plugin.strategy.StrategyManager"/>
+
+        <!-- Project-level services -->
+        <projectService
+                serviceImplementation="com.xguard.plugin.inspection.RiskDetectionService"/>
+
+        <!-- Editor inspection -->
+        <localInspection
+                language="any"
+                implementationClass="com.xguard.plugin.inspection.PromptInspection"
+                displayName="XGuard Prompt Security Inspection"
+                groupPath="XGuard"
+                groupName="Security"
+                shortName="XGuardPromptInspection"
+                enabledByDefault="true"
+                level="WARNING"/>
+
+        <!-- Annotator for real-time highlighting -->
+        <annotator
+                language="any"
+                implementationClass="com.xguard.plugin.inspection.RiskAnnotator"/>
+
+        <!-- Tool Window -->
+        <toolWindow
+                id="XGuard Report"
+                factoryClass="com.xguard.plugin.ui.XGuardToolWindowFactory"
+                anchor="bottom"
+                icon="/icons/xguard.svg"/>
+
+        <!-- Settings -->
+        <applicationConfigurable
+                parentId="tools"
+                instance="com.xguard.plugin.ui.settings.XGuardSettingsConfigurable"
+                id="com.xguard.plugin.ui.settings.XGuardSettingsConfigurable"
+                displayName="XGuard"/>
+
+        <!-- Notification group -->
+        <notificationGroup
+                id="XGuard.Notification"
+                displayType="BALLOON"/>
+
+        <!-- Editor notification provider -->
+        <editorNotificationProvider
+                implementationClass="com.xguard.plugin.ui.RiskNotificationProvider"/>
+
+        <!-- Startup activity -->
+        <postStartupActivity
+                implementation="com.xguard.plugin.XGuardPlugin"/>
+
+        <!-- Persistent settings -->
+        <applicationService
+                serviceImplementation="com.xguard.plugin.ui.settings.XGuardSettings"/>
+    </extensions>
+
+    <actions>
+        <!-- Action group -->
+        <group id="XGuard.Actions" text="XGuard" popup="true">
+            <add-to-group group-id="EditorPopupMenu" anchor="last"/>
+        </group>
+
+        <!-- Manual scan action -->
+        <action
+                id="XGuard.ScanCurrentFile"
+                class="com.xguard.plugin.actions.ScanCurrentFileAction"
+                text="Scan Current File"
+                description="Scan the current file for prompt security risks">
+            <add-to-group group-id="XGuard.Actions" anchor="first"/>
+            <keyboard-shortcut keymap="$default" first-keystroke="ctrl shift X"/>
+        </action>
+
+        <!-- Batch scan action -->
+        <action
+                id="XGuard.BatchScan"
+                class="com.xguard.plugin.actions.BatchScanAction"
+                text="Batch Scan Project"
+                description="Batch scan all project files for prompt security risks">
+            <add-to-group group-id="XGuard.Actions" anchor="after" relative-to-action="XGuard.ScanCurrentFile"/>
+        </action>
+
+        <!-- Export report action -->
+        <action
+                id="XGuard.ExportReport"
+                class="com.xguard.plugin.actions.ExportReportAction"
+                text="Export Security Report"
+                description="Export security audit report">
+            <add-to-group group-id="XGuard.Actions" anchor="after" relative-to-action="XGuard.BatchScan"/>
+        </action>
+    </actions>
+</idea-plugin>
