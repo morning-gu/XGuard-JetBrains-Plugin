@@ -87,8 +87,14 @@ class RiskDetectionService(val project: Project) {
                     enableReasoning = true
                 )
                 results.add(PromptRisk(prompt, riskResult))
-            } catch (_: Exception) {
-                // 跳过失败的检测
+            } catch (e: Exception) {
+                // 记录失败的检测，仍添加一个默认安全结果以便通知用户
+                results.add(PromptRisk(prompt, RiskResult(
+                    riskScore = 0f,
+                    riskTag = "Safe-Safe",
+                    explanation = "Detection failed: ${e.message}",
+                    inferenceTime = 0.0
+                )))
             }
         }
 

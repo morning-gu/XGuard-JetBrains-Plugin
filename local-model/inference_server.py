@@ -212,11 +212,15 @@ class XGuardHandler(BaseHTTPRequestHandler):
         print(f"[XGuard] {args[0]}")
 
     def _send_json_response(self, data: dict, status: int = 200):
-        self.send_response(status)
-        self.send_header('Content-Type', 'application/json; charset=utf-8')
-        self.send_header('Access-Control-Allow-Origin', '*')
-        self.end_headers()
-        self.wfile.write(json.dumps(data, ensure_ascii=False).encode('utf-8'))
+        try:
+            self.send_response(status)
+            self.send_header('Content-Type', 'application/json; charset=utf-8')
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.end_headers()
+            self.wfile.write(json.dumps(data, ensure_ascii=False).encode('utf-8'))
+        except (ConnectionAbortedError, ConnectionResetError, BrokenPipeError) as e:
+            # 客户端已断开连接（超时/主动关闭），无法发送响应，仅记录日志
+            print(f"[XGuard] Client disconnected before response could be sent: {e}")
 
     def _read_request_body(self) -> bytes:
         content_length = int(self.headers.get('Content-Length', 0))
@@ -248,6 +252,9 @@ class XGuardHandler(BaseHTTPRequestHandler):
             enable_reasoning = params.get('enable_reasoning', True)
             reason_first = params.get('reason_first', False)
 
+            print(f"[XGuard] >>> POST /infer | messages={len(messages)} | max_new_tokens={max_new_tokens} | enable_reasoning={enable_reasoning} | reason_first={reason_first}")
+            print(f"[XGuard] >>> Request body: {json.dumps(params, ensure_ascii=False)}")
+
             if not messages:
                 self._send_json_response({'error': 'messages is required'}, 400)
                 return
@@ -263,6 +270,7 @@ class XGuardHandler(BaseHTTPRequestHandler):
                 reason_first=reason_first,
             )
 
+            print(f"[XGuard] <<< Response: {json.dumps(result, ensure_ascii=False)}")
             self._send_json_response(result)
 
         except Exception as e:

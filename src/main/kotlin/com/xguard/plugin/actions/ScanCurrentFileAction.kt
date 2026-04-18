@@ -24,12 +24,31 @@ class ScanCurrentFileAction : AnAction() {
         val editor = e.getData(CommonDataKeys.EDITOR) ?: return
         val psiFile = e.getData(CommonDataKeys.PSI_FILE) ?: return
 
+        // 立即通知用户扫描已开始
+        val startNotification = NotificationGroupManager.getInstance()
+            .getNotificationGroup("XGuard.Notification")
+            .createNotification(
+                "XGuard Scan Started",
+                "Scanning ${psiFile.name}...",
+                NotificationType.INFORMATION
+            )
+        startNotification.notify(project)
+
         val service = RiskDetectionService.getInstance(project)
         service.triggerDetection(editor, psiFile)
 
         scope.launch {
-            kotlinx.coroutines.delay(1000)
-            val results = service.getResults(psiFile.virtualFile?.path ?: "")
+            // 等待检测完成（通过轮询结果，最多等待配置的超时时间）
+            val settings = com.xguard.plugin.ui.settings.XGuardSettings.getInstance()
+            val maxWaitMs = settings.inferenceTimeoutSec * 1000L + 5000L
+            val startTime = System.currentTimeMillis()
+            var results: List<com.xguard.plugin.inspection.PromptRisk>
+
+            do {
+                kotlinx.coroutines.delay(500)
+                results = service.getResults(psiFile.virtualFile?.path ?: "")
+            } while (results.isEmpty() && System.currentTimeMillis() - startTime < maxWaitMs)
+
             val riskyCount = results.count { it.result.isRisky() }
 
             kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
@@ -37,7 +56,7 @@ class ScanCurrentFileAction : AnAction() {
                     .getNotificationGroup("XGuard.Notification")
                     .createNotification(
                         "XGuard Scan Complete",
-                        "Found $riskyCount risk(s) in ${psiFile.name}",
+                        if (results.isEmpty()) "No prompts found in ${psiFile.name}" else "Found $riskyCount risk(s) in ${psiFile.name}",
                         if (riskyCount > 0) NotificationType.WARNING else NotificationType.INFORMATION
                     )
                 notification.notify(project)

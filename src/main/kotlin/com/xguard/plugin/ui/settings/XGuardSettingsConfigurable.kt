@@ -25,6 +25,7 @@ class XGuardSettingsConfigurable : Configurable {
     private val sensitivitySlider = javax.swing.JSlider(0, 100, 50)
     private val enableRealTimeCheckBox = javax.swing.JCheckBox("Enable real-time detection", true)
     private val enableReasoningCheckBox = javax.swing.JCheckBox("Enable reasoning (explanation)", true)
+    private val inferenceTimeoutField = JBTextField()
 
     private var mainPanel: JPanel? = null
 
@@ -38,6 +39,7 @@ class XGuardSettingsConfigurable : Configurable {
                 row("Cloud API Key:") { cloudApiKeyField() }
                 row("Local Model Path:") { localModelPathField() }
                 row("Python Interpreter:") { pythonPathField() }
+                row("Inference Timeout (sec):") { inferenceTimeoutField() }
             }
             titledRow("Detection Settings") {
                 row("Sensitivity:") { sensitivitySlider() }
@@ -57,7 +59,8 @@ class XGuardSettingsConfigurable : Configurable {
                 pythonPathField.text != settings.pythonPath ||
                 sensitivitySlider.value != (settings.sensitivity * 100).toInt() ||
                 enableRealTimeCheckBox.isSelected != settings.enableRealTimeDetection ||
-                enableReasoningCheckBox.isSelected != settings.enableReasoning
+                enableReasoningCheckBox.isSelected != settings.enableReasoning ||
+                inferenceTimeoutField.text.toIntOrNull() != settings.inferenceTimeoutSec
     }
 
     override fun apply() {
@@ -69,6 +72,7 @@ class XGuardSettingsConfigurable : Configurable {
         settings.sensitivity = sensitivitySlider.value / 100f
         settings.enableRealTimeDetection = enableRealTimeCheckBox.isSelected
         settings.enableReasoning = enableReasoningCheckBox.isSelected
+        settings.inferenceTimeoutSec = inferenceTimeoutField.text.toIntOrNull() ?: 300
     }
 
     override fun reset() {
@@ -80,5 +84,6 @@ class XGuardSettingsConfigurable : Configurable {
         sensitivitySlider.value = (settings.sensitivity * 100).toInt()
         enableRealTimeCheckBox.isSelected = settings.enableRealTimeDetection
         enableReasoningCheckBox.isSelected = settings.enableReasoning
+        inferenceTimeoutField.text = settings.inferenceTimeoutSec.toString()
     }
 }

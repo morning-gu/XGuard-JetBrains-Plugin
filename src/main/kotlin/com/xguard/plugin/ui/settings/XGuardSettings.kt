@@ -55,6 +55,9 @@ class XGuardSettings : PersistentStateComponent<XGuardSettings> {
     /** 是否启用归因推理 */
     var enableReasoning: Boolean = true
 
+    /** 本地推理超时时间（秒） */
+    var inferenceTimeoutSec: Int = 300
+
     override fun getState(): XGuardSettings = this
 
     override fun loadState(state: XGuardSettings) {

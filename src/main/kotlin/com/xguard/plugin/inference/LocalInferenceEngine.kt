@@ -34,7 +34,11 @@ class LocalInferenceEngine : InferenceAdapter {
     companion object {
         private const val DEFAULT_PORT = 18797
         private const val STARTUP_TIMEOUT_MS = 60_000L
-        private const val INFERENCE_TIMEOUT_MS = 5_000L
+    }
+
+    private fun getInferenceTimeoutMs(): Int {
+        val settings = ApplicationManager.getApplication().getService(XGuardSettings::class.java)
+        return settings.inferenceTimeoutSec * 1000
     }
 
     override suspend fun infer(
@@ -112,8 +116,9 @@ class LocalInferenceEngine : InferenceAdapter {
         val conn = url.openConnection() as java.net.HttpURLConnection
         conn.requestMethod = "POST"
         conn.setRequestProperty("Content-Type", "application/json")
-        conn.connectTimeout = INFERENCE_TIMEOUT_MS.toInt()
-        conn.readTimeout = INFERENCE_TIMEOUT_MS.toInt()
+        val timeoutMs = getInferenceTimeoutMs()
+        conn.connectTimeout = timeoutMs
+        conn.readTimeout = timeoutMs
         conn.doOutput = true
 
         conn.outputStream.use { it.write(requestBody.toByteArray(Charsets.UTF_8)) }
