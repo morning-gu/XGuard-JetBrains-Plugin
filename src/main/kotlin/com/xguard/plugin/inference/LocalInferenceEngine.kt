@@ -58,18 +58,29 @@ class LocalInferenceEngine : InferenceAdapter {
 
             parseRiskResult(response, elapsed)
         } catch (e: Exception) {
-            RiskResult(
-                riskScore = 0f,
-                riskTag = "Safe-Safe",
-                explanation = "Local inference failed: ${e.message}",
-                inferenceTime = (System.currentTimeMillis() - startTime) / 1000.0
-            )
+            // 服务可能已崩溃但 isRunning 仍为 true，尝试重启一次
+            isRunning.set(false)
+            try {
+                ensureServerRunning()
+                val response = sendInferenceRequest(prompt, enableReasoning)
+                val elapsed = (System.currentTimeMillis() - startTime) / 1000.0
+                parseRiskResult(response, elapsed)
+            } catch (retryE: Exception) {
+                throw RuntimeException("Local inference failed after retry: ${e.message}", retryE)
+            }
         }
     }
 
     override fun isAvailable(): Boolean = isRunning.get() && isServerHealthy()
 
     override fun name(): String = "Local (YuFeng-XGuard-Reason-0.6B)"
+
+    /**
+     * 预热：仅启动本地服务并做健康检查，不发送推理请求
+     */
+    override fun warmUp() {
+        ensureServerRunning()
+    }
 
     /**
      * 确保本地推理服务正在运行
@@ -133,30 +144,42 @@ class LocalInferenceEngine : InferenceAdapter {
 
     /**
      * 解析推理结果
+     *
+     * 服务端返回格式：
+     *   risk_tag: 非Safe中最高分的标签（即使分数极低）
+     *   risk_score: 该标签的分数
+     *   risk_scores: 各维度分值Map，包含 "Safe-Safe"
+     *
+     * 插件侧修正逻辑：
+     *   - 当 Safe 分数 >= 0.5 时，判定为安全，riskTag="Safe-Safe"，riskScore=1-Safe分数
+     *   - 当 Safe 分数 < 0.5 时，判定为风险，riskTag取非Safe最高分标签，riskScore=该标签分数
+     *   - riskScore 统一表示"风险程度"：值越大越危险，Safe时接近0
      */
     private fun parseRiskResult(response: String, inferenceTime: Double): RiskResult {
         val jsonResponse = json.parseToJsonElement(response).jsonObject
 
-        // 解析 risk_score 映射
-        val riskScoreObj = jsonResponse["risk_score"]?.jsonObject
+        // 解析 risk_scores 映射（各维度分值）
         val riskScores = mutableMapOf<String, Float>()
-        var topRiskTag = "Safe-Safe"
-        var topRiskScore = 0f
+        val riskScoresObj = jsonResponse["risk_scores"]?.jsonObject
+        if (riskScoresObj != null) {
+            for ((key, value) in riskScoresObj) {
+                riskScores[key] = value.jsonPrimitive.content.toFloatOrNull() ?: 0f
+            }
+        }
 
-        if (riskScoreObj != null) {
-            for ((key, value) in riskScoreObj) {
-                val score = value.jsonPrimitive.content.toFloat()
-                riskScores[key] = score
-                if (key != "Safe-Safe" && score > topRiskScore) {
-                    topRiskScore = score
-                    topRiskTag = key
-                }
-            }
-            // 如果没有找到风险项，取 Safe 分数
-            if (topRiskScore == 0f) {
-                topRiskScore = riskScores["Safe-Safe"] ?: 0f
-                topRiskTag = "Safe-Safe"
-            }
+        // 基于 risk_scores 做正确判断
+        val safeScore = riskScores["Safe-Safe"] ?: 0f
+        val topRiskTag: String
+        val topRiskScore: Float
+
+        if (safeScore >= 0.5f) {
+            // Safe 分数占优，判定为安全
+            topRiskTag = "Safe-Safe"
+            topRiskScore = 1f - safeScore  // 风险程度 = 1 - Safe分数，接近0表示安全
+        } else {
+            // 风险分数占优，取非Safe中最高分标签
+            topRiskTag = jsonResponse["risk_tag"]?.jsonPrimitive?.content ?: "Safe-Safe"
+            topRiskScore = jsonResponse["risk_score"]?.jsonPrimitive?.content?.toFloatOrNull() ?: 0f
         }
 
         // 解析归因文本

@@ -33,6 +33,14 @@ class InferenceManager {
     }
 
     /**
+     * 预热推理引擎
+     * 仅启动本地服务并做健康检查，不发送推理请求
+     */
+    suspend fun warmUp() {
+        router.warmUp()
+    }
+
+    /**
      * 执行风险检测
      * @param prompt 待检测文本
      * @param policy 策略配置

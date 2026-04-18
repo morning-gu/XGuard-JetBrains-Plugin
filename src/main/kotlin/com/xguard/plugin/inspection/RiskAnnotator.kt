@@ -23,21 +23,25 @@ class RiskAnnotator : Annotator {
         val results = service.getResults(filePath)
 
         for (promptRisk in results) {
-            if (!promptRisk.result.isRisky()) continue
-
             val prompt = promptRisk.prompt
             val result = promptRisk.result
+
+            // 跳过 Safe 结果，不标注
+            if (!result.isRisky() && !result.riskTag.startsWith("Error-")) continue
 
             // 检查当前元素是否在风险 Prompt 范围内
             val elementStart = element.textRange.startOffset
             val elementEnd = element.textRange.endOffset
 
             if (elementStart >= prompt.startOffset && elementEnd <= prompt.endOffset) {
-                val severity = when (result.severity) {
-                    RiskSeverity.HIGH -> HighlightSeverity.ERROR
-                    RiskSeverity.MEDIUM -> HighlightSeverity.WARNING
-                    RiskSeverity.LOW -> HighlightSeverity.WEAK_WARNING
-                    RiskSeverity.NONE -> return
+                val severity = when {
+                    result.riskTag.startsWith("Error-") -> HighlightSeverity.ERROR
+                    else -> when (result.severity) {
+                        RiskSeverity.HIGH -> HighlightSeverity.ERROR
+                        RiskSeverity.MEDIUM -> HighlightSeverity.WARNING
+                        RiskSeverity.LOW -> HighlightSeverity.WEAK_WARNING
+                        RiskSeverity.NONE -> continue
+                    }
                 }
 
                 val message = buildAnnotationMessage(result)

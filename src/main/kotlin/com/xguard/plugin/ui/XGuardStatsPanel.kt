@@ -20,8 +20,15 @@ class XGuardStatsPanel(private val project: Project) : JBPanel<Nothing>(BorderLa
     private val lowLabel = JLabel("0")
     private val safeLabel = JLabel("0")
 
+    /** 结果更新监听器，当 RiskDetectionService 有新结果时自动刷新 */
+    private val resultListener = java.util.function.Consumer<String> {
+        javax.swing.SwingUtilities.invokeLater { refreshData() }
+    }
+
     init {
         setupUI()
+        // 注册监听器，检测结果更新时自动刷新统计
+        RiskDetectionService.getInstance(project).addResultListener(resultListener)
         refreshData()
     }
 
@@ -52,14 +59,14 @@ class XGuardStatsPanel(private val project: Project) : JBPanel<Nothing>(BorderLa
 
     fun refreshData() {
         val service = RiskDetectionService.getInstance(project)
-        val allRisks = service.getAllRiskyResults()
+        val allResults = service.getAllResults()
 
         var high = 0
         var medium = 0
         var low = 0
         var safe = 0
 
-        for ((_, risks) in allRisks) {
+        for ((_, risks) in allResults) {
             for (promptRisk in risks) {
                 when (promptRisk.result.severity) {
                     com.xguard.plugin.model.RiskSeverity.HIGH -> high++

@@ -73,6 +73,13 @@ class SmartRouter(
 
     override fun name(): String = "SmartRouter"
 
+    /**
+     * 预热：启动本地服务并做健康检查
+     */
+    override fun warmUp() {
+        local.warmUp()
+    }
+
     private fun getInferenceMode(): InferenceMode {
         val settings = ApplicationManager.getApplication().getService(XGuardSettings::class.java)
         return settings.inferenceMode
@@ -89,12 +96,23 @@ class SmartRouter(
     }
 
     private fun isNetworkAvailable(): Boolean {
+        // 使用云端 API 端点自身做连通性检测，而非 Google
+        // 这样在国内等 Google 不可达的环境下也能正确判断云端是否可用
+        val settings = ApplicationManager.getApplication().getService(XGuardSettings::class.java)
+        val endpoint = settings.cloudEndpoint.ifEmpty { "https://api.xguard.ai/v1/guardrail/infer" }
+        // 从 API 端点提取 base URL 进行 HEAD 检测
+        val baseUrl = try {
+            val url = java.net.URL(endpoint)
+            "${url.protocol}://${url.host}/"
+        } catch (_: Exception) {
+            endpoint
+        }
         return try {
-            val url = java.net.URL("https://www.google.com")
+            val url = java.net.URL(baseUrl)
             val conn = url.openConnection() as java.net.HttpURLConnection
             conn.requestMethod = "HEAD"
-            conn.connectTimeout = 1000
-            conn.readTimeout = 1000
+            conn.connectTimeout = 2000
+            conn.readTimeout = 2000
             conn.responseCode in 200..399
         } catch (_: Exception) {
             false

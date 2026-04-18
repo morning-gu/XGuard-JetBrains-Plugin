@@ -66,7 +66,7 @@ class XGuardPlugin : ProjectActivity {
         scope.launch {
             try {
                 val inferenceManager = InferenceManager.getInstance()
-                inferenceManager.detect("health check", enableReasoning = false, useCache = false)
+                inferenceManager.warmUp()
             } catch (_: Exception) {
                 // 预热失败不影响插件使用
             }

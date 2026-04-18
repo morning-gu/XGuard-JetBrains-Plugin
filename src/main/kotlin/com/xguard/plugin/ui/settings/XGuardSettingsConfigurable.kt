@@ -24,7 +24,7 @@ class XGuardSettingsConfigurable : Configurable {
     private val pythonPathField = JBTextField()
     private val sensitivitySlider = javax.swing.JSlider(0, 100, 50)
     private val enableRealTimeCheckBox = javax.swing.JCheckBox("Enable real-time detection", true)
-    private val enableReasoningCheckBox = javax.swing.JCheckBox("Enable reasoning (explanation)", true)
+    private val enableReasoningCheckBox = javax.swing.JCheckBox("Enable reasoning (explanation)", false)
     private val inferenceTimeoutField = JBTextField()
 
     private var mainPanel: JPanel? = null

@@ -21,13 +21,24 @@ class RiskNotificationProvider : EditorNotificationProvider {
     ): Function<FileEditor, JComponent?>? {
         val service = RiskDetectionService.getInstance(project)
         val results = service.getResults(file.path)
+
+        if (results.isEmpty()) return null
+
         val riskyCount = results.count { it.result.isRisky() }
+        val failedCount = results.count { it.result.riskTag.startsWith("Error-") }
 
-        if (riskyCount == 0) return null
-
+        // 有风险、有错误、或全部 Safe 都显示通知栏
         return Function { _ ->
-            JLabel("XGuard: $riskyCount risk(s) detected in this file").also {
-                it.foreground = java.awt.Color(204, 0, 0)
+            when {
+                failedCount > 0 -> JLabel("XGuard: $failedCount inference error(s) in this file. Check if the local Python service is running.").also {
+                    it.foreground = java.awt.Color.RED
+                }
+                riskyCount > 0 -> JLabel("XGuard: $riskyCount risk(s) detected in this file").also {
+                    it.foreground = java.awt.Color(204, 0, 0)
+                }
+                else -> JLabel("XGuard: Scan complete - no risks found").also {
+                    it.foreground = java.awt.Color(0, 128, 0)
+                }
             }
         }
     }

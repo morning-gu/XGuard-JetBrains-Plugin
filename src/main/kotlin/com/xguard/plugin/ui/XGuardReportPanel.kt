@@ -27,11 +27,30 @@ class XGuardReportPanel(private val project: Project) : SimpleToolWindowPanel(tr
 
     private val table = JBTable(tableModel)
 
+    /** CardLayout 面板，用于在表格和空状态提示之间切换 */
+    private lateinit var cardPanel: JPanel
+    private lateinit var cardLayout: java.awt.CardLayout
+
+    /** 无结果时的提示标签 */
+    private val emptyLabel = JLabel("No scan results yet. Click \"Scan Current File\" to start scanning.").also {
+        it.horizontalAlignment = SwingConstants.CENTER
+        it.foreground = java.awt.Color.GRAY
+    }
+
+    /** 结果更新监听器，当 RiskDetectionService 有新结果时自动刷新（在EDT线程执行） */
+    private val resultListener = java.util.function.Consumer<String> {
+        javax.swing.SwingUtilities.invokeLater { refreshData() }
+    }
+
     init {
         setupUI()
+        // 注册监听器，检测结果更新时自动刷新表格
+        RiskDetectionService.getInstance(project).addResultListener(resultListener)
     }
 
     private fun setupUI() {
+        layout = BorderLayout()
+
         table.autoCreateRowSorter = true
 
         // 设置列宽
@@ -52,13 +71,22 @@ class XGuardReportPanel(private val project: Project) : SimpleToolWindowPanel(tr
                     "HIGH" -> foreground = java.awt.Color.RED
                     "MEDIUM" -> foreground = java.awt.Color.ORANGE
                     "LOW" -> foreground = java.awt.Color.BLUE
+                    "NONE" -> foreground = java.awt.Color.GRAY
                 }
                 return c
             }
         }
 
         val scrollPane = JBScrollPane(table)
-        setContent(scrollPane)
+
+        // 使用 CardLayout 在表格和空状态提示之间切换，避免布局覆盖
+        cardLayout = java.awt.CardLayout()
+        cardPanel = JPanel(cardLayout)
+        cardPanel.add(scrollPane, "table")
+        cardPanel.add(emptyLabel, "empty")
+        cardLayout.show(cardPanel, "empty")
+
+        setContent(cardPanel)
 
         // 刷新按钮
         val toolbar = JToolBar()
@@ -76,9 +104,15 @@ class XGuardReportPanel(private val project: Project) : SimpleToolWindowPanel(tr
         tableModel.rowCount = 0
 
         val service = RiskDetectionService.getInstance(project)
-        val allRisks = service.getAllRiskyResults()
+        val allResults = service.getAllResults()
 
-        for ((filePath, risks) in allRisks) {
+        if (allResults.isEmpty()) {
+            emptyLabel.text = "No scan results yet. Click \"Scan Current File\" to start scanning."
+            cardLayout.show(cardPanel, "empty")
+            return
+        }
+
+        for ((filePath, risks) in allResults) {
             for (promptRisk in risks) {
                 val result = promptRisk.result
                 val fileName = filePath.substringAfterLast('/')
@@ -90,6 +124,15 @@ class XGuardReportPanel(private val project: Project) : SimpleToolWindowPanel(tr
                     result.explanation.take(100)
                 ))
             }
+        }
+
+        // 切换到表格视图
+        cardLayout.show(cardPanel, "table")
+
+        // 如果所有结果都是 Safe，更新空状态提示文本（但不切换显示）
+        val riskyCount = allResults.values.sumOf { risks -> risks.count { it.result.isRisky() } }
+        if (riskyCount == 0) {
+            emptyLabel.text = "Scan complete. No risks found - all prompts are safe."
         }
     }
 }

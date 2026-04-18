@@ -1,5 +1,6 @@
 package com.xguard.plugin.inspection
 
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.intellij.openapi.editor.Editor
@@ -8,6 +9,7 @@ import com.intellij.psi.PsiFile
 import com.xguard.plugin.extractor.PromptExtractorRegistry
 import com.xguard.plugin.inference.InferenceManager
 import com.xguard.plugin.model.PromptContext
+import com.xguard.plugin.model.PromptSourceType
 import com.xguard.plugin.model.RiskResult
 import com.xguard.plugin.strategy.StrategyManager
 import kotlinx.coroutines.CoroutineScope
@@ -17,6 +19,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.util.concurrent.ConcurrentHashMap
+import java.util.function.Consumer
 
 /**
  * 风险检测服务（Project-level Service）
@@ -35,37 +38,79 @@ class RiskDetectionService(val project: Project) {
     @Volatile
     private var pendingDetection: kotlinx.coroutines.Job? = null
 
+    /** 结果更新监听器列表 */
+    private val resultListeners = mutableListOf<Consumer<String>>()
+
     companion object {
         private const val DEBOUNCE_DELAY_MS = 300L
         fun getInstance(project: Project): RiskDetectionService = project.service()
     }
 
     /**
-     * 触发检测（带防抖）
+     * 注册结果更新监听器
+     * 当检测结果更新时，监听器会收到更新的文件路径
      */
-    fun triggerDetection(editor: Editor, psiFile: PsiFile) {
+    fun addResultListener(listener: Consumer<String>) {
+        resultListeners.add(listener)
+    }
+
+    /**
+     * 移除结果更新监听器
+     */
+    fun removeResultListener(listener: Consumer<String>) {
+        resultListeners.remove(listener)
+    }
+
+    /**
+     * 触发检测（带防抖）
+     * @return 检测任务的 Job，调用方可以 await 等待完成
+     */
+    fun triggerDetection(editor: Editor, psiFile: PsiFile): kotlinx.coroutines.Job {
         pendingDetection?.cancel()
         pendingDetection = scope.launch {
             kotlinx.coroutines.delay(DEBOUNCE_DELAY_MS)
             performDetection(editor, psiFile)
         }
+        return pendingDetection!!
     }
 
     /**
      * 执行检测
      */
     private suspend fun performDetection(editor: Editor, psiFile: PsiFile) {
-        val filePath = psiFile.virtualFile?.path ?: return
+        // 1. 在 Read Action 中提取 Prompt（PSI 树访问必须在 Read Action 中执行）
+        val filePath = ApplicationManager.getApplication().runReadAction<String?> {
+            psiFile.virtualFile?.path
+        } ?: return
 
-        // 1. 提取 Prompt
-        val registry = PromptExtractorRegistry.getInstance()
-        val extractors = registry.getExtractorsForFile(psiFile)
-        val prompts = mutableListOf<PromptContext>()
+        val prompts = ApplicationManager.getApplication().runReadAction<List<PromptContext>> {
+            val registry = PromptExtractorRegistry.getInstance()
+            val extractors = registry.getExtractorsForFile(psiFile)
+            val result = mutableListOf<PromptContext>()
 
-        for (extractor in extractors) {
-            prompts.addAll(extractor.extractPrompts(project, editor, psiFile))
+            for (extractor in extractors) {
+                result.addAll(extractor.extractPrompts(project, editor, psiFile))
+            }
+
+            // 如果提取器未找到任何 Prompt，将整个文件内容作为待检测文本
+            if (result.isEmpty()) {
+                val document = editor.document
+                val fileContent = document.text.trim()
+                if (fileContent.isNotEmpty()) {
+                    result.add(PromptContext(
+                        promptText = fileContent,
+                        startOffset = 0,
+                        endOffset = document.textLength,
+                        sourceType = PromptSourceType.RAW_STRING,
+                        filePath = filePath
+                    ))
+                }
+            }
+
+            result
         }
 
+        // 提取结果为空，清除缓存并返回
         if (prompts.isEmpty()) {
             mutex.withLock {
                 detectionResults.remove(filePath)
@@ -73,7 +118,7 @@ class RiskDetectionService(val project: Project) {
             return
         }
 
-        // 2. 推理检测
+        // 2. 推理检测（在后台线程执行，不需要 Read Action）
         val inferenceManager = InferenceManager.getInstance()
         val strategyManager = StrategyManager.getInstance()
         val policy = strategyManager.getCurrentPolicy()
@@ -84,15 +129,15 @@ class RiskDetectionService(val project: Project) {
                 val riskResult = inferenceManager.detect(
                     prompt = prompt.promptText,
                     policy = policy,
-                    enableReasoning = true
+                    enableReasoning = com.xguard.plugin.ui.settings.XGuardSettings.getInstance().enableReasoning
                 )
                 results.add(PromptRisk(prompt, riskResult))
             } catch (e: Exception) {
-                // 记录失败的检测，仍添加一个默认安全结果以便通知用户
+                // 推理失败时使用特殊标签标记，以便用户能感知到服务不可用
                 results.add(PromptRisk(prompt, RiskResult(
-                    riskScore = 0f,
-                    riskTag = "Safe-Safe",
-                    explanation = "Detection failed: ${e.message}",
+                    riskScore = -1f,
+                    riskTag = "Error-InferenceFailed",
+                    explanation = "Detection failed: ${e.message}. Please check if the local Python service is running.",
                     inferenceTime = 0.0
                 )))
             }
@@ -101,6 +146,11 @@ class RiskDetectionService(val project: Project) {
         // 3. 缓存结果
         mutex.withLock {
             detectionResults[filePath] = results
+        }
+
+        // 4. 通知监听器
+        for (listener in resultListeners) {
+            listener.accept(filePath)
         }
     }
 
@@ -118,6 +168,13 @@ class RiskDetectionService(val project: Project) {
         return detectionResults.mapValues { (_, risks) ->
             risks.filter { it.result.isRisky() }
         }.filterValues { it.isNotEmpty() }
+    }
+
+    /**
+     * 获取所有检测结果（包含 Safe 的）
+     */
+    fun getAllResults(): Map<String, List<PromptRisk>> {
+        return detectionResults.toMap()
     }
 
     /**

@@ -70,7 +70,11 @@ enum class XGuardRiskCategory(
 
         /** 根据模型输出的 "Dimension-Category" 格式查找 */
         fun fromDisplayName(name: String): XGuardRiskCategory {
-            return entries.find { it.displayName == name } ?: SAFE
+            // 服务端返回格式: "Dimension-Category"（短横线无空格）
+            // 枚举 displayName 格式: "Dimension - Category"（短横线带空格）
+            // 统一格式后再匹配
+            val normalized = name.replace(" - ", "-").replace("- ", "-").replace(" -", "-")
+            return entries.find { it.displayName.replace(" - ", "-") == normalized } ?: SAFE
         }
     }
 }

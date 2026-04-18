@@ -53,7 +53,7 @@ class XGuardSettings : PersistentStateComponent<XGuardSettings> {
     var pluginPath: String = ""
 
     /** 是否启用归因推理 */
-    var enableReasoning: Boolean = true
+    var enableReasoning: Boolean = false
 
     /** 本地推理超时时间（秒） */
     var inferenceTimeoutSec: Int = 300

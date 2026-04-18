@@ -28,4 +28,9 @@ interface InferenceAdapter {
 
     /** 获取推理引擎名称 */
     fun name(): String
+
+    /**
+     * 预热引擎：启动服务并做健康检查，不发送推理请求
+     */
+    fun warmUp() {}
 }
